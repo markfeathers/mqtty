@@ -80,7 +80,7 @@ class MQTTY:
 
     def run(self):
         """Start the bridge between PTY and MQTT."""
-        print(self.slave_name)  # This is okay for output, since it's a setup step
+        print(self.slave_name, flush=True)
 
         mqtt_thread = threading.Thread(target=self.mqtt_connect)
         mqtt_thread.daemon = True
