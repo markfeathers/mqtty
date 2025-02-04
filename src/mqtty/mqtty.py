@@ -56,14 +56,11 @@ class MQTTY:
         self.mqtt_client.on_connect = on_connect
         self.mqtt_client.on_disconnect = on_disconnect
 
-        while not self.stop_event.is_set():
-            if not self.connected:
-                try:
-                    self.mqtt_client.connect_async(self.mqtt_host, self.mqtt_port)
-                    self.mqtt_client.loop_start()
-                except Exception as e:
-                    sys.stderr.write(f"MQTT connection failed: {e}\n")
-                time.sleep(5)  # Retry every 5 seconds
+        try:
+            self.mqtt_client.connect_async(self.mqtt_host, self.mqtt_port)
+            self.mqtt_client.loop_forever()
+        except Exception as e:
+            sys.stderr.write(f"MQTT connection failed: {e}\n")
 
     def pty_to_mqtt(self):
         """Read data from PTY and publish it to MQTT."""
