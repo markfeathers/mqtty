@@ -1,11 +1,11 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mqtty"
-version = "0.1.0"
 description = "Bridges MQTT topics to a pseudo-terminal device"
+readme = "README.md"
 authors = [
     {name = "Mark Featherston", email = "mark@embeddedTS.com"}
 ]
@@ -13,5 +13,25 @@ dependencies = [
     "paho-mqtt"
 ]
 
+dynamic = ["version"]
+
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
+
+[project.urls]
+homepage = "https://github.com/embeddedts/mqtty"
+bugs = "https://github.com/embeddedts/mqtty/issues"
+
 [project.scripts]
 mqtty = "mqtty.mqtty:main"
+
+[tool.mypy]
+files = "."
+# Use strict defaults
+strict = true
+warn_unreachable = true
+warn_no_return = true
+
+[tool.ruff]
+line-length = 120
