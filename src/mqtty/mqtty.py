@@ -31,7 +31,10 @@ class MQTTY:
         self.device_serial_input_topic = f"{base_path}/device_serial_input"
         self.device_serial_output_topic = f"{base_path}/device_serial_output"
 
-        self.mqtt_client = Client(transport=self.mqtt_transport, callback_api_version=CallbackAPIVersion.VERSION2)
+        self.mqtt_client = Client(
+            transport=self.mqtt_transport,
+            callback_api_version=CallbackAPIVersion.VERSION2,
+        )
 
         self.master_fd, self.slave_fd = pty.openpty()
         self.slave_name = os.ttyname(self.slave_fd)
@@ -53,7 +56,7 @@ class MQTTY:
             userdata: Any,
             flags: Dict[str, Any],
             reason_code: ReasonCode,
-            properties: Optional[Properties]
+            properties: Optional[Properties],
         ) -> None:
             if reason_code == 0:
                 self.connected = True
@@ -66,7 +69,7 @@ class MQTTY:
             userdata: Any,
             reason_code: ReasonCode | int | None,
             properties: Optional[Properties],
-            packet_from_broker: object
+            packet_from_broker: object,
         ) -> None:
             self.connected = False
 
@@ -112,8 +115,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="MQTTY: Bridge MQTT to PTY.")
     parser.add_argument("mqtt_uri", help="MQTT URI (e.g., mqtt://broker/topic)")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("-p", "--pts-only", action="store_true", help="Only create and expose the PTS device")
-    group.add_argument("-w", "--wrap-picocom", action="store_true", help="Wrap and run picocom on the PTS device")
+    group.add_argument(
+        "-p",
+        "--pts-only",
+        action="store_true",
+        help="Only create and expose the PTS device",
+    )
+    group.add_argument(
+        "-w",
+        "--wrap-picocom",
+        action="store_true",
+        help="Wrap and run picocom on the PTS device",
+    )
     args = parser.parse_args()
 
     try:
