@@ -15,8 +15,9 @@ import signal
 
 
 class MQTTY:
-    def __init__(self, mqtt_uri: str) -> None:
+    def __init__(self, mqtt_uri: str, use_pty: bool) -> None:
         self.mqtt_uri = urlparse(mqtt_uri)
+        self.use_pty = use_pty
 
         if self.mqtt_uri.scheme not in ["mqtt", "ws", "wss"]:
             raise ValueError("Invalid URI scheme. Expected 'mqtt://', 'ws://', or 'wss://'.")
@@ -36,17 +37,26 @@ class MQTTY:
             callback_api_version=CallbackAPIVersion.VERSION2,
         )
 
-        self.master_fd, self.slave_fd = pty.openpty()
-        self.slave_name = os.ttyname(self.slave_fd)
+        self.master_fd: Optional[int] = None
+        self.slave_fd: Optional[int] = None
+        self.slave_name: Optional[str] = None
+
+        if self.use_pty:
+            self.master_fd, self.slave_fd = pty.openpty()
+            self.slave_name = os.ttyname(self.slave_fd)
 
         self.connected = False
         self.stop_event = threading.Event()
 
     def on_message(self, _client: Client, _userdata: object, msg: MQTTMessage) -> None:
         try:
-            os.write(self.master_fd, msg.payload)
+            if self.use_pty and self.master_fd is not None:
+                os.write(self.master_fd, msg.payload)
+            else:
+                sys.stdout.buffer.write(msg.payload)
+                sys.stdout.buffer.flush()
         except Exception as e:
-            sys.stderr.write(f"Error writing to PTY: {e}\n")
+            sys.stderr.write(f"Error handling MQTT message: {e}\n")
 
     def mqtt_connect(self) -> None:
         self.mqtt_client.on_message = self.on_message
@@ -69,7 +79,6 @@ class MQTTY:
             userdata: Any,
             reason_code: ReasonCode | int | None,
             properties: Optional[Properties],
-            packet_from_broker: object,
         ) -> None:
             self.connected = False
 
@@ -87,11 +96,12 @@ class MQTTY:
     def pty_to_mqtt(self) -> None:
         while not self.stop_event.is_set():
             try:
-                ready, _, _ = select.select([self.master_fd], [], [], 1)
-                if self.master_fd in ready:
-                    data = os.read(self.master_fd, 1024)
-                    if self.connected:
-                        self.mqtt_client.publish(self.device_serial_input_topic, data)
+                if self.master_fd is not None:
+                    ready, _, _ = select.select([self.master_fd], [], [], 1)
+                    if self.master_fd in ready:
+                        data = os.read(self.master_fd, 1024)
+                        if self.connected:
+                            self.mqtt_client.publish(self.device_serial_input_topic, data)
             except Exception as e:
                 sys.stderr.write(f"Error reading from PTY: {e}\n")
                 break
@@ -100,15 +110,19 @@ class MQTTY:
         mqtt_thread = threading.Thread(target=self.mqtt_connect, daemon=True)
         mqtt_thread.start()
 
-        pty_thread = threading.Thread(target=self.pty_to_mqtt, daemon=True)
-        pty_thread.start()
+        if self.use_pty:
+            pty_thread = threading.Thread(target=self.pty_to_mqtt, daemon=True)
+            pty_thread.start()
 
     def shutdown(self) -> None:
         self.stop_event.set()
         self.mqtt_client.loop_stop()
         self.mqtt_client.disconnect()
-        os.close(self.master_fd)
-        os.close(self.slave_fd)
+        if self.use_pty:
+            if self.master_fd is not None:
+                os.close(self.master_fd)
+            if self.slave_fd is not None:
+                os.close(self.slave_fd)
 
 
 def main() -> None:
@@ -127,10 +141,26 @@ def main() -> None:
         action="store_true",
         help="Wrap and run picocom on the PTS device",
     )
+    group.add_argument(
+        "-r",
+        "--raw-output",
+        action="store_true",
+        help="Only print device_serial_output topic to stdout, no PTY or input",
+    )
     args = parser.parse_args()
 
     try:
-        bridge = MQTTY(args.mqtt_uri)
+        if args.raw_output:
+            bridge = MQTTY(args.mqtt_uri, False)
+            bridge.start_threads()
+            try:
+                signal.signal(signal.SIGINT, lambda sig, frame: bridge.shutdown())
+                signal.pause()
+            except KeyboardInterrupt:
+                bridge.shutdown()
+            return
+
+        bridge = MQTTY(args.mqtt_uri, True)
         if args.pts_only:
             print(bridge.slave_name, flush=True)
         bridge.start_threads()
@@ -140,7 +170,10 @@ def main() -> None:
             signal.pause()  # Wait until interrupted
         elif args.wrap_picocom:
             try:
-                subprocess.run(["picocom", "--quiet", bridge.slave_name])
+                if bridge.slave_name is not None:
+                    subprocess.run(["picocom", "--quiet", bridge.slave_name])
+                else:
+                    sys.stderr.write("Error: slave_name is not set.\n")
             finally:
                 bridge.shutdown()
 
